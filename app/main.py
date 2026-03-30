@@ -10,6 +10,17 @@ def main():
     server_socket = socket.create_server(("localhost", 6379), reuse_port=True)
     server_socket.accept() # wait for client
 
+    # The return value includes:
+    # 1. the client's connection (a `Socket` object)
+    # 2. the client's address (a tuple of the IP address and port number)
+    connection, _ = server_socket.accept()
+
+    # Send the response to the client
+    # The b prefix converts the string to a bytes object. 
+    # +PONG\r\n is the string "PONG" encoded as a RESP simple string.
+    # https://redis.io/docs/latest/develop/reference/protocol-spec/#simple-strings
+    connection.sendall(b"+PONG\r\n")
+
 
 if __name__ == "__main__":
     main()
