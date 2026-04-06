@@ -1,6 +1,6 @@
 [![progress-banner](https://backend.codecrafters.io/progress/redis/9b065dd0-2958-4df4-af7e-8a8676ba1190)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
 
-This is a starting point for Python solutions to the
+This is my python solution to codecrafters'
 ["Build Your Own Redis" Challenge](https://codecrafters.io/challenges/redis).
 
 In this challenge, you'll build a toy Redis clone that's capable of handling
