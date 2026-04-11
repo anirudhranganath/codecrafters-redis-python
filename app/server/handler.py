@@ -1,6 +1,8 @@
 import asyncio
 
-PONG = b"+PONG\r\n"
+from app.protocol import RedisProtocol
+
+READ_BYTES_LIMIT = 4096
 
 
 async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -19,14 +21,14 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
 
     try:
         while True:
-            data = await reader.read(4096)
+            data = await reader.read(READ_BYTES_LIMIT)
             if not data:
                 break
 
             print(f"Received data: {data!r}")
-            writer.write(PONG)
+            response = await RedisProtocol.process_input(data)
+            writer.write(response)
             await writer.drain()
     finally:
         writer.close()
         await writer.wait_closed()
-
