@@ -1,11 +1,16 @@
 import asyncio
 
 from app.protocol import RedisProtocol
+from app.storage import RedisDB
 
 READ_BYTES_LIMIT = 4096
 
 
-async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+async def handle_client(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    store: RedisDB,
+) -> None:
     """Handle one TCP client connection.
 
     This coroutine is invoked by `asyncio.start_server(...)` for each accepted
@@ -26,7 +31,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
                 break
 
             print(f"Received data: {data!r}")
-            response = await RedisProtocol.process_input(data)
+            response = await RedisProtocol.process_input(data, store)
             writer.write(response)
             await writer.drain()
     finally:

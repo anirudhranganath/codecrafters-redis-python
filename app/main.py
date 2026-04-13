@@ -1,6 +1,7 @@
 import asyncio
 
 from app.server.handler import handle_client
+from app.storage import RedisDB
 
 HOST = "localhost"
 PORT = 6379
@@ -11,7 +12,12 @@ async def start_server() -> None:
     Binds to (`HOST`, `PORT`) and dispatches each client connection to
     `app.server.handler.handle_client`.
     """
-    server = await asyncio.start_server(handle_client, HOST, PORT)
+    store = RedisDB()
+    server = await asyncio.start_server(
+        lambda reader, writer: handle_client(reader, writer, store),
+        HOST,
+        PORT,
+    )
     # (Optional) print where it's listening
     sockets = server.sockets or []
     for s in sockets:

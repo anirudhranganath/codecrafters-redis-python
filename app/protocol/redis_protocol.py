@@ -1,11 +1,15 @@
 from enum import Enum
 
+from app.storage import RedisDB
+
 
 class Command(str, Enum):
     """Redis command types."""
 
     PING = "PING"
     ECHO = "ECHO"
+    SET = "SET"
+    GET = "GET"
 
 
 class RedisProtocol:
@@ -18,11 +22,11 @@ class RedisProtocol:
     CRLF = b"\r\n"
 
     @classmethod
-    async def process_input(cls, data: bytes) -> bytes:
+    async def process_input(cls, data: bytes, store: RedisDB) -> bytes:
         """Process the input command and return the output data."""
         first = data[:1]  # b'*', b'$', etc. (safe even if empty)
         if first == cls.RESP_ARRAY_PREFIX:
-            return cls.process_array(data)
+            return cls.process_array(data, store)
         if first == cls.RESP_BULK_STRING_PREFIX:
             return cls.process_bulk_string(data)
         if first == cls.RESP_SIMPLE_STRING_PREFIX:
@@ -34,7 +38,7 @@ class RedisProtocol:
         return b"-ERR unknown command\r\n"
 
     @classmethod
-    def process_array(cls, data: bytes) -> bytes:
+    def process_array(cls, data: bytes, store: RedisDB) -> bytes:
         """Handle RESP array payload.
         
         Arrays are of the form *<number-of-elements>\r\n<element-1>...<element-n>   
@@ -74,6 +78,22 @@ class RedisProtocol:
                 return b"-ERR wrong number of arguments for 'echo' command\r\n"
             payload = args[1]
             return f"${len(payload)}\r\n".encode() + payload + cls.CRLF
+
+        if command == Command.SET.value.encode():
+            if len(args) != 3:
+                return b"-ERR wrong number of arguments for 'set' command\r\n"
+            key, value = args[1], args[2]
+            store.set(key, value)
+            return b"+OK\r\n"
+
+        if command == Command.GET.value.encode():
+            if len(args) != 2:
+                return b"-ERR wrong number of arguments for 'get' command\r\n"
+            key = args[1]
+            value = store.get(key)
+            if value is None:
+                return b"$-1\r\n"
+            return f"${len(value)}\r\n".encode() + value + cls.CRLF
 
         return b"-ERR unknown command\r\n"
 
