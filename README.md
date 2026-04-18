@@ -10,7 +10,24 @@ event loops, the Redis protocol and more.
 **Note**: If you're viewing this repo on GitHub, head over to
 [codecrafters.io](https://codecrafters.io) to try the challenge.
 
-# Passing the first stage
+# Working with this project:
+## Running locally:
+`.\your_program.sh`
+
+## Running Unit tests:
+`uv run pytest`  
+You might have to run `uv sync --extra test`
+
+### Coverage:
+* Basic: `pytest --cov=app`
+* With HTML report: `pytest --cov=app --cov-report=html`
+* Show missing lines: `pytest --cov=app --cov-report=term-missing`
+
+## Linting:
+`uvx ruff check`
+
+# CodeCrafters Info
+## Passing the first stage
 
 The entry point for your Redis implementation is in `app/main.py`. Study and
 uncomment the relevant code, and push your changes to pass the first stage:
@@ -22,7 +39,7 @@ git push origin master
 
 That's all!
 
-# Stage 2 & beyond
+## Stage 2 & beyond
 
 Note: This section is for stages 2 and beyond.
 
@@ -32,9 +49,9 @@ Note: This section is for stages 2 and beyond.
 1. Commit your changes and run `git push origin master` to submit your solution
    to CodeCrafters. Test output will be streamed to your terminal.
 
-# Troubleshooting
+## Troubleshooting
 
-## module `socket` has no attribute `create_server`
+### module `socket` has no attribute `create_server`
 
 When running your server locally, you might see an error like this:
 
