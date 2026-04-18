@@ -1,3 +1,6 @@
+import time
+
+
 class RedisDB:
     """In-memory key-value store (Redis-style bulk strings as bytes)."""
 
@@ -5,7 +8,21 @@ class RedisDB:
         self.store = {}
 
     def get(self, key: bytes) -> bytes | None:
-        return self.store.get(key, None)
+        """Get the value associated with the key. Returns None if the key is not found or expired."""
+        if key not in self.store:
+            return None
 
-    def set(self, key: bytes, value: bytes) -> None:
-        self.store[key] = value
+        value, expiry_at = self.store[key]
+        if expiry_at is not None and time.time() * 1000 >= expiry_at:
+            del self.store[key]
+            return None
+
+        return value
+
+    def set(self, key: bytes, value: bytes, px: int | None = None) -> None:
+        """Set the value associated with the key, with optional expiry in milliseconds."""
+        expiry_at = None
+        if px is not None:
+            expiry_at = (time.time() * 1000) + px
+
+        self.store[key] = (value, expiry_at)

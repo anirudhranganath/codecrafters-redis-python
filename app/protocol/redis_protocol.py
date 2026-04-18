@@ -80,10 +80,26 @@ class RedisProtocol:
             return f"${len(payload)}\r\n".encode() + payload + cls.CRLF
 
         if command == Command.SET.value.encode():
-            if len(args) != 3:
+            if len(args) < 3:
                 return b"-ERR wrong number of arguments for 'set' command\r\n"
             key, value = args[1], args[2]
-            store.set(key, value)
+            px = None
+            if len(args) == 5:
+                option = args[3].upper()
+                try:
+                    expiry_val = int(args[4])
+                    if option == b"EX":
+                        px = expiry_val * 1000
+                    elif option == b"PX":
+                        px = expiry_val
+                    else:
+                        return b"-ERR syntax error\r\n"
+                except ValueError:
+                    return b"-ERR value is not an integer or out of range\r\n"
+            elif len(args) != 3:
+                return b"-ERR syntax error\r\n"
+
+            store.set(key, value, px=px)
             return b"+OK\r\n"
 
         if command == Command.GET.value.encode():
