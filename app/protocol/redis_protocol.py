@@ -116,7 +116,9 @@ class RedisProtocol:
             if len(args) < 2:
                 return b"-ERR wrong number of arguments for 'RPUSH' command\r\n"
             key = args[1]
-            value = args[2]
+            value = []
+            for _ in range(2, len(args)):
+                value.append(args[_])
             items = store.rpush(key, value)
             return f":{items}\r\n".encode()
         return b"-ERR unknown command\r\n"

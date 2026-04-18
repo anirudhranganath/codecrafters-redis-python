@@ -27,7 +27,7 @@ class RedisDB:
 
         self.store[key] = (value, expiry_at)
 
-    def rpush(self, key: bytes, value: bytes) -> int:
+    def rpush(self, key: bytes, value: list[bytes]) -> int:
         """
         Append value to the list at key. Creates new list if key doesn't exist.
         Returns the length of the list after the push.
@@ -36,5 +36,5 @@ class RedisDB:
             self.store[key] = []
         if type(self.store[key]) != list:
             raise TypeError("Value at key is not a list")
-        self.store[key].append(value)
+        self.store[key].extend(value)
         return len(self.store[key])
