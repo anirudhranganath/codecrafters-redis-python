@@ -10,6 +10,7 @@ class Command(str, Enum):
     ECHO = "ECHO"
     SET = "SET"
     GET = "GET"
+    RPUSH = "RPUSH"
 
 
 class RedisProtocol:
@@ -111,6 +112,13 @@ class RedisProtocol:
                 return b"$-1\r\n"
             return f"${len(value)}\r\n".encode() + value + cls.CRLF
 
+        if command == Command.RPUSH.value.encode():
+            if len(args) < 2:
+                return b"-ERR wrong number of arguments for 'RPUSH' command\r\n"
+            key = args[1]
+            value = args[2]
+            items = store.rpush(key, value)
+            return f":{items}\r\n".encode()
         return b"-ERR unknown command\r\n"
 
 
