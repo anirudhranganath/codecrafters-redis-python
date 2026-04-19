@@ -1,6 +1,5 @@
 """Unit tests for RedisDB storage."""
 import time
-import pytest
 from app.storage.redisdb import RedisDB
 
 

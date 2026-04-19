@@ -11,6 +11,7 @@ class Command(str, Enum):
     SET = "SET"
     GET = "GET"
     RPUSH = "RPUSH"
+    LRANGE = "LRANGE"
 
 
 class RedisProtocol:
@@ -121,6 +122,18 @@ class RedisProtocol:
                 value.append(args[_])
             items = store.rpush(key, value)
             return f":{items}\r\n".encode()
+
+        if command == Command.LRANGE.value.encode():
+            if len(args) < 3:
+                return b"-ERR wrong number of arguments for 'LRANGE' command\r\n"
+            key = args[1]
+            start = int(args[2])
+            end = int(args[3])
+            items = store.lrange(key, start, end)
+            ret_string = b""
+            for item in items:
+                ret_string += f"${len(item)}\r\n".encode() + item + cls.CRLF
+            return f"*{len(items)}\r\n".encode() + ret_string
         return b"-ERR unknown command\r\n"
 
 
