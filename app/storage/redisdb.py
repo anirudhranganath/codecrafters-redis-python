@@ -44,10 +44,23 @@ class RedisDB:
         Return values between indices start_index and end_index (inclusive)
         of the list at a key.
         """
-        if key not in self.store or start_index > end_index:
+        if key not in self.store:
             return []
         if type(self.store[key]) is not list:
             raise TypeError("Value at key is not a list")
         if start_index >= len(self.store[key]):
             return []
+        if start_index < 0:
+            start_index = len(self.store[key]) + start_index
+        if end_index < 0:
+            end_index = len(self.store[key]) + end_index
+
+        # Clamp to valid range
+        start_index = max(0, start_index)  # Don't go below 0
+        end_index = min(end_index, len(self.store[key]) - 1)  # Don't exceed list length
+
+        # Handle invalid range
+        if start_index > end_index:
+            return []
+
         return self.store[key][start_index:end_index + 1]
