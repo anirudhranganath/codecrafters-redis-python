@@ -39,6 +39,19 @@ class RedisDB:
         self.store[key].extend(value)
         return len(self.store[key])
 
+    def lpush(self, key: bytes, value: list[bytes]) -> int:
+        """
+        Append value to the list at a key. Creates a new list if key doesn't exist.
+        Returns the length of the list after the push.
+        """
+        if key not in self.store:
+            self.store[key] = []
+        if type(self.store[key]) is not list:
+            raise TypeError("Value at key is not a list")
+        for i in value:
+            self.store[key].insert(0, i)
+        return len(self.store[key])
+
     def lrange(self, key: bytes, start_index: bytes, end_index: bytes) -> [bytes]:
         """
         Return values between indices start_index and end_index (inclusive)

@@ -10,6 +10,7 @@ class Command(str, Enum):
     ECHO = "ECHO"
     SET = "SET"
     GET = "GET"
+    LPUSH = "LPUSH"
     RPUSH = "RPUSH"
     LRANGE = "LRANGE"
 
@@ -121,6 +122,16 @@ class RedisProtocol:
             for _ in range(2, len(args)):
                 value.append(args[_])
             items = store.rpush(key, value)
+            return f":{items}\r\n".encode()
+
+        if command == Command.LPUSH.value.encode():
+            if len(args) < 2:
+                return b"-ERR wrong number of arguments for 'RPUSH' command\r\n"
+            key = args[1]
+            value = []
+            for _ in range(2, len(args)):
+                value.append(args[_])
+            items = store.lpush(key, value)
             return f":{items}\r\n".encode()
 
         if command == Command.LRANGE.value.encode():
