@@ -1,79 +1,87 @@
 import time
 
+from app.storage.strobj import RedisEntry, RedisType
+
+
+class WrongTypeError(Exception):
+    """Raised when an operation is performed on a key holding the wrong type."""
+
 
 class RedisDB:
     """In-memory key-value store (Redis-style bulk strings as bytes)."""
 
     def __init__(self):
-        self.store = {}
+        self.store: dict[bytes, RedisEntry] = {}
 
-    def get(self, key: bytes) -> bytes | None:
-        """Get the value associated with the key. Returns None if the key is not found or expired."""
-        if key not in self.store:
+    def _get_entry(self, key: bytes) -> RedisEntry | None:
+        """Return the entry for key, deleting it if expired. Returns None if missing or expired."""
+        entry = self.store.get(key)
+        if entry is None:
             return None
-
-        value, expiry_at = self.store[key]
-        if expiry_at is not None and time.time() * 1000 >= expiry_at:
+        if entry.expiry_ms is not None and time.time_ns() // 1_000_000 >= entry.expiry_ms:
             del self.store[key]
             return None
+        return entry
 
-        return value
+    def get(self, key: bytes) -> bytes | None:
+        """Get the string value for key. Returns None if missing or expired. Raises WrongTypeError if key holds a list."""
+        entry = self._get_entry(key)
+        if entry is None:
+            return None
+        if entry.type != RedisType.STRING:
+            raise WrongTypeError
+        return entry.value  # type: ignore[return-value]
 
     def set(self, key: bytes, value: bytes, px: int | None = None) -> None:
-        """Set the value associated with the key, with optional expiry in milliseconds."""
-        expiry_at = None
+        """Set a string value for key with optional expiry in milliseconds."""
+        expiry_ms = None
         if px is not None:
-            expiry_at = (time.time() * 1000) + px
-
-        self.store[key] = (value, expiry_at)
+            expiry_ms = time.time_ns() // 1_000_000 + px
+        self.store[key] = RedisEntry(type=RedisType.STRING, value=value, expiry_ms=expiry_ms)
 
     def rpush(self, key: bytes, value: list[bytes]) -> int:
-        """
-        Append value to the list at a key. Creates a new list if key doesn't exist.
-        Returns the length of the list after the push.
-        """
-        if key not in self.store:
-            self.store[key] = []
-        if type(self.store[key]) is not list:
-            raise TypeError("Value at key is not a list")
-        self.store[key].extend(value)
-        return len(self.store[key])
+        """Append values to the list at key. Creates the list if key doesn't exist. Raises WrongTypeError if key holds a string."""
+        entry = self._get_entry(key)
+        if entry is None:
+            self.store[key] = RedisEntry(type=RedisType.LIST, value=value[:])
+        else:
+            if entry.type != RedisType.LIST:
+                raise WrongTypeError
+            assert isinstance(entry.value, list)
+            entry.value.extend(value)
+        return len(self.store[key].value)  # type: ignore[arg-type]
 
     def lpush(self, key: bytes, value: list[bytes]) -> int:
-        """
-        Append value to the list at a key. Creates a new list if key doesn't exist.
-        Returns the length of the list after the push.
-        """
-        if key not in self.store:
-            self.store[key] = []
-        if type(self.store[key]) is not list:
-            raise TypeError("Value at key is not a list")
-        for i in value:
-            self.store[key].insert(0, i)
-        return len(self.store[key])
+        """Prepend values to the list at key. Creates the list if key doesn't exist. Raises WrongTypeError if key holds a string."""
+        entry = self._get_entry(key)
+        if entry is None:
+            self.store[key] = RedisEntry(type=RedisType.LIST, value=list(reversed(value)))
+        else:
+            if entry.type != RedisType.LIST:
+                raise WrongTypeError
+            assert isinstance(entry.value, list)
+            entry.value = list(reversed(value)) + entry.value
+        return len(self.store[key].value)  # type: ignore[arg-type]
 
-    def lrange(self, key: bytes, start_index: bytes, end_index: bytes) -> [bytes]:
-        """
-        Return values between indices start_index and end_index (inclusive)
-        of the list at a key.
-        """
-        if key not in self.store:
+    def lrange(self, key: bytes, start_index: int, end_index: int) -> list[bytes]:
+        """Return values between start_index and end_index (inclusive) of the list at key."""
+        entry = self._get_entry(key)
+        if entry is None:
             return []
-        if type(self.store[key]) is not list:
-            raise TypeError("Value at key is not a list")
-        if start_index >= len(self.store[key]):
-            return []
+        if entry.type != RedisType.LIST:
+            raise WrongTypeError
+        assert isinstance(entry.value, list)
+        lst = entry.value
+        n = len(lst)
+
         if start_index < 0:
-            start_index = len(self.store[key]) + start_index
+            start_index = n + start_index
         if end_index < 0:
-            end_index = len(self.store[key]) + end_index
+            end_index = n + end_index
 
-        # Clamp to valid range
-        start_index = max(0, start_index)  # Don't go below 0
-        end_index = min(end_index, len(self.store[key]) - 1)  # Don't exceed list length
+        start_index = max(0, start_index)
+        end_index = min(end_index, n - 1)
 
-        # Handle invalid range
         if start_index > end_index:
             return []
-
-        return self.store[key][start_index:end_index + 1]
+        return lst[start_index:end_index + 1]

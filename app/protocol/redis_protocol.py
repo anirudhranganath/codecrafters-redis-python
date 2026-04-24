@@ -1,6 +1,9 @@
 from enum import Enum
 
 from app.storage import RedisDB
+from app.storage.redisdb import WrongTypeError
+
+WRONGTYPE_ERROR = b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
 
 
 class Command(str, Enum):
@@ -43,8 +46,8 @@ class RedisProtocol:
     @classmethod
     def process_array(cls, data: bytes, store: RedisDB) -> bytes:
         """Handle RESP array payload.
-        
-        Arrays are of the form *<number-of-elements>\r\n<element-1>...<element-n>   
+
+        Arrays are of the form *<number-of-elements>\r\n<element-1>...<element-n>
         """
         try:
             line_end = data.find(cls.CRLF, 1)
@@ -68,13 +71,12 @@ class RedisProtocol:
             return b"-ERR unknown command\r\n"
 
         command = args[0].upper()
+
         if command == Command.PING.value.encode():
             if len(args) == 1:
                 return b"+PONG\r\n"
-            if len(args) > 1:
-                payload = args[1]
-                return f"${len(payload)}\r\n".encode() + payload + cls.CRLF
-            return b"-ERR wrong number of arguments for 'ping' command\r\n"
+            payload = args[1]
+            return f"${len(payload)}\r\n".encode() + payload + cls.CRLF
 
         if command == Command.ECHO.value.encode():
             if len(args) != 2:
@@ -101,7 +103,6 @@ class RedisProtocol:
                     return b"-ERR value is not an integer or out of range\r\n"
             elif len(args) != 3:
                 return b"-ERR syntax error\r\n"
-
             store.set(key, value, px=px)
             return b"+OK\r\n"
 
@@ -109,44 +110,49 @@ class RedisProtocol:
             if len(args) != 2:
                 return b"-ERR wrong number of arguments for 'get' command\r\n"
             key = args[1]
-            value = store.get(key)
+            try:
+                value = store.get(key)
+            except WrongTypeError:
+                return WRONGTYPE_ERROR
             if value is None:
                 return b"$-1\r\n"
             return f"${len(value)}\r\n".encode() + value + cls.CRLF
 
         if command == Command.RPUSH.value.encode():
-            if len(args) < 2:
-                return b"-ERR wrong number of arguments for 'RPUSH' command\r\n"
+            if len(args) < 3:
+                return b"-ERR wrong number of arguments for 'rpush' command\r\n"
             key = args[1]
-            value = []
-            for _ in range(2, len(args)):
-                value.append(args[_])
-            items = store.rpush(key, value)
+            try:
+                items = store.rpush(key, args[2:])
+            except WrongTypeError:
+                return WRONGTYPE_ERROR
             return f":{items}\r\n".encode()
 
         if command == Command.LPUSH.value.encode():
-            if len(args) < 2:
-                return b"-ERR wrong number of arguments for 'RPUSH' command\r\n"
+            if len(args) < 3:
+                return b"-ERR wrong number of arguments for 'lpush' command\r\n"
             key = args[1]
-            value = []
-            for _ in range(2, len(args)):
-                value.append(args[_])
-            items = store.lpush(key, value)
+            try:
+                items = store.lpush(key, args[2:])
+            except WrongTypeError:
+                return WRONGTYPE_ERROR
             return f":{items}\r\n".encode()
 
         if command == Command.LRANGE.value.encode():
-            if len(args) < 3:
-                return b"-ERR wrong number of arguments for 'LRANGE' command\r\n"
+            if len(args) != 4:
+                return b"-ERR wrong number of arguments for 'lrange' command\r\n"
             key = args[1]
-            start = int(args[2])
-            end = int(args[3])
-            items = store.lrange(key, start, end)
-            ret_string = b""
-            for item in items:
-                ret_string += f"${len(item)}\r\n".encode() + item + cls.CRLF
+            try:
+                start, end = int(args[2]), int(args[3])
+                items = store.lrange(key, start, end)
+            except WrongTypeError:
+                return WRONGTYPE_ERROR
+            except ValueError:
+                return b"-ERR value is not an integer or out of range\r\n"
+            ret_string = b"".join(f"${len(item)}\r\n".encode() + item + cls.CRLF for item in items)
             return f"*{len(items)}\r\n".encode() + ret_string
-        return b"-ERR unknown command\r\n"
 
+        return b"-ERR unknown command\r\n"
 
     @classmethod
     def process_bulk_string(cls, data: bytes, pos: int | None = None) -> tuple[bytes, int] | bytes:
@@ -189,4 +195,3 @@ class RedisProtocol:
         """Handle RESP integer payload."""
         _ = data
         return b"-ERR integer parsing not implemented\r\n"
-
