@@ -63,6 +63,16 @@ class RedisDB:
             entry.value = list(reversed(value)) + entry.value
         return len(self.store[key].value)  # type: ignore[arg-type]
 
+    def llen(self, key: bytes) -> int:
+        """Return the length of the list at key. Returns 0 if key doesn't exist. Raises WrongTypeError if key holds a string."""
+        entry = self._get_entry(key)
+        if entry is None:
+            return 0
+        if entry.type != RedisType.LIST:
+            raise WrongTypeError
+        assert isinstance(entry.value, list)
+        return len(entry.value)
+
     def lrange(self, key: bytes, start_index: int, end_index: int) -> list[bytes]:
         """Return values between start_index and end_index (inclusive) of the list at key."""
         entry = self._get_entry(key)

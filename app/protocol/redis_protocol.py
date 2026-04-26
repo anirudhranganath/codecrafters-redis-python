@@ -93,17 +93,14 @@ def _handle_lrange(args: list[bytes], store: RedisDB) -> bytes:
     ret_string = b"".join(_bulk(item) for item in items)
     return f"*{len(items)}\r\n".encode() + ret_string
 
-
-_HANDLERS: dict[bytes, Callable[[list[bytes], RedisDB], bytes]] = {
-    b"PING":   _handle_ping,
-    b"ECHO":   _handle_echo,
-    b"SET":    _handle_set,
-    b"GET":    _handle_get,
-    b"RPUSH":  _handle_rpush,
-    b"LPUSH":  _handle_lpush,
-    b"LRANGE": _handle_lrange,
-}
-
+def _handle_llen(args: list[bytes], store: RedisDB) -> bytes:
+    if len(args) != 2:
+        return b"-ERR wrong number of arguments for 'llen' command\r\n"
+    try:
+        length = store.llen(args[1])
+    except WrongTypeError:
+        return WRONGTYPE_ERROR
+    return f":{length}\r\n".encode()
 
 class Command(str, Enum):
     """Redis command types."""
@@ -115,6 +112,22 @@ class Command(str, Enum):
     LPUSH = "LPUSH"
     RPUSH = "RPUSH"
     LRANGE = "LRANGE"
+    LLEN = "LLEN"
+
+
+_HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
+    Command.PING:   _handle_ping,
+    Command.ECHO:   _handle_echo,
+    Command.SET:    _handle_set,
+    Command.GET:    _handle_get,
+    Command.RPUSH:  _handle_rpush,
+    Command.LPUSH:  _handle_lpush,
+    Command.LRANGE: _handle_lrange,
+    Command.LLEN: _handle_llen,
+}
+
+if set(_HANDLERS) != set(Command):
+    raise RuntimeError(f"Unhandled commands: {set(Command) - set(_HANDLERS)}")
 
 
 class RedisProtocol:
@@ -169,8 +182,9 @@ class RedisProtocol:
         if not args:
             return b"-ERR unknown command\r\n"
 
-        handler = _HANDLERS.get(args[0].upper())
-        if handler is None:
+        try:
+            handler = _HANDLERS[Command(args[0].upper().decode())]
+        except (ValueError, KeyError):
             return b"-ERR unknown command\r\n"
         return handler(args, store)
 
