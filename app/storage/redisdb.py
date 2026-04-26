@@ -39,49 +39,44 @@ class RedisDB:
             expiry_ms = time.time_ns() // 1_000_000 + px
         self.store[key] = RedisEntry(type=RedisType.STRING, value=value, expiry_ms=expiry_ms)
 
-    def rpush(self, key: bytes, value: list[bytes]) -> int:
-        """Append values to the list at key. Creates the list if key doesn't exist. Raises WrongTypeError if key holds a string."""
+    def _get_list(self, key: bytes) -> list[bytes] | None:
+        """Return the list for key, or None if missing. Raises WrongTypeError if key holds a non-list."""
         entry = self._get_entry(key)
         if entry is None:
+            return None
+        if entry.type != RedisType.LIST:
+            raise WrongTypeError
+        assert isinstance(entry.value, list)
+        return entry.value
+
+    def rpush(self, key: bytes, value: list[bytes]) -> int:
+        """Append values to the list at key. Creates the list if key doesn't exist. Raises WrongTypeError if key holds a string."""
+        lst = self._get_list(key)
+        if lst is None:
             self.store[key] = RedisEntry(type=RedisType.LIST, value=value[:])
         else:
-            if entry.type != RedisType.LIST:
-                raise WrongTypeError
-            assert isinstance(entry.value, list)
-            entry.value.extend(value)
+            lst.extend(value)
         return len(self.store[key].value)  # type: ignore[arg-type]
 
     def lpush(self, key: bytes, value: list[bytes]) -> int:
         """Prepend values to the list at key. Creates the list if key doesn't exist. Raises WrongTypeError if key holds a string."""
-        entry = self._get_entry(key)
-        if entry is None:
+        lst = self._get_list(key)
+        if lst is None:
             self.store[key] = RedisEntry(type=RedisType.LIST, value=list(reversed(value)))
         else:
-            if entry.type != RedisType.LIST:
-                raise WrongTypeError
-            assert isinstance(entry.value, list)
-            entry.value = list(reversed(value)) + entry.value
+            lst[:0] = list(reversed(value))
         return len(self.store[key].value)  # type: ignore[arg-type]
 
     def llen(self, key: bytes) -> int:
         """Return the length of the list at key. Returns 0 if key doesn't exist. Raises WrongTypeError if key holds a string."""
-        entry = self._get_entry(key)
-        if entry is None:
-            return 0
-        if entry.type != RedisType.LIST:
-            raise WrongTypeError
-        assert isinstance(entry.value, list)
-        return len(entry.value)
+        lst = self._get_list(key)
+        return len(lst) if lst is not None else 0
 
     def lrange(self, key: bytes, start_index: int, end_index: int) -> list[bytes]:
         """Return values between start_index and end_index (inclusive) of the list at key."""
-        entry = self._get_entry(key)
-        if entry is None:
+        lst = self._get_list(key)
+        if lst is None:
             return []
-        if entry.type != RedisType.LIST:
-            raise WrongTypeError
-        assert isinstance(entry.value, list)
-        lst = entry.value
         n = len(lst)
 
         if start_index < 0:
@@ -95,3 +90,21 @@ class RedisDB:
         if start_index > end_index:
             return []
         return lst[start_index:end_index + 1]
+
+    def lpop(self, key: bytes) -> bytes | None:
+        lst = self._get_list(key)
+        if lst is None:
+            return None
+        value = lst.pop(0)
+        if not lst:
+            del self.store[key]
+        return value
+
+    def rpop(self, key: bytes) -> bytes | None:
+        lst = self._get_list(key)
+        if lst is None:
+            return None
+        value = lst.pop()
+        if not lst:
+            del self.store[key]
+        return value

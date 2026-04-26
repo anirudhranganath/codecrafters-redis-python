@@ -7,6 +7,7 @@ from app.storage.redisdb import WrongTypeError
 WRONGTYPE_ERROR = b"-WRONGTYPE Operation against a key holding the wrong kind of value\r\n"
 
 _CRLF = b"\r\n"
+_NULL_BULK = b"$-1\r\n"
 
 
 def _bulk(value: bytes) -> bytes:
@@ -68,7 +69,7 @@ def _handle_get(args: list[bytes], store: RedisDB) -> bytes:
     except WrongTypeError:
         return WRONGTYPE_ERROR
     if value is None:
-        return b"$-1\r\n"
+        return _NULL_BULK
     return _bulk(value)
 
 
@@ -116,6 +117,26 @@ def _handle_llen(args: list[bytes], store: RedisDB) -> bytes:
     return _int_reply(length)
 
 
+def _handle_lpop(args: list[bytes], store: RedisDB) -> bytes:
+    if (err := _check_arity(args, 2)):
+        return err
+    try:
+        value = store.lpop(args[1])
+    except WrongTypeError:
+        return WRONGTYPE_ERROR
+    return _NULL_BULK if value is None else _bulk(value)
+
+
+def _handle_rpop(args: list[bytes], store: RedisDB) -> bytes:
+    if (err := _check_arity(args, 2)):
+        return err
+    try:
+        value = store.rpop(args[1])
+    except WrongTypeError:
+        return WRONGTYPE_ERROR
+    return _NULL_BULK if value is None else _bulk(value)
+
+
 class Command(Enum):
     """Redis command types."""
 
@@ -127,6 +148,8 @@ class Command(Enum):
     RPUSH = "RPUSH"
     LRANGE = "LRANGE"
     LLEN = "LLEN"
+    LPOP = "LPOP"
+    RPOP = "RPOP"
 
 
 _HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
@@ -138,6 +161,8 @@ _HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
     Command.LPUSH:  _handle_lpush,
     Command.LRANGE: _handle_lrange,
     Command.LLEN:   _handle_llen,
+    Command.LPOP:   _handle_lpop,
+    Command.RPOP:   _handle_rpop,
 }
 
 if set(_HANDLERS) != set(Command):
