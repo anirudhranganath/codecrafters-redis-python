@@ -118,23 +118,47 @@ def _handle_llen(args: list[bytes], store: RedisDB) -> bytes:
 
 
 def _handle_lpop(args: list[bytes], store: RedisDB) -> bytes:
-    if (err := _check_arity(args, 2)):
-        return err
+    if len(args) not in (2, 3):
+        return b"-ERR wrong number of arguments for 'lpop' command\r\n"
+    count = None
+    if len(args) == 3:
+        try:
+            count = int(args[2])
+        except ValueError:
+            return b"-ERR value is not an integer or out of range\r\n"
+        if count < 0:
+            return b"-ERR value is not an integer or out of range\r\n"
     try:
-        value = store.lpop(args[1])
+        result = store.lpop(args[1], count)
     except WrongTypeError:
         return WRONGTYPE_ERROR
-    return _NULL_BULK if value is None else _bulk(value)
+    if result is None:
+        return _NULL_BULK
+    if isinstance(result, list):
+        return f"*{len(result)}\r\n".encode() + b"".join(_bulk(v) for v in result)
+    return _bulk(result)
 
 
 def _handle_rpop(args: list[bytes], store: RedisDB) -> bytes:
-    if (err := _check_arity(args, 2)):
-        return err
+    if len(args) not in (2, 3):
+        return b"-ERR wrong number of arguments for 'rpop' command\r\n"
+    count = None
+    if len(args) == 3:
+        try:
+            count = int(args[2])
+        except ValueError:
+            return b"-ERR value is not an integer or out of range\r\n"
+        if count < 0:
+            return b"-ERR value is not an integer or out of range\r\n"
     try:
-        value = store.rpop(args[1])
+        result = store.rpop(args[1], count)
     except WrongTypeError:
         return WRONGTYPE_ERROR
-    return _NULL_BULK if value is None else _bulk(value)
+    if result is None:
+        return _NULL_BULK
+    if isinstance(result, list):
+        return f"*{len(result)}\r\n".encode() + b"".join(_bulk(v) for v in result)
+    return _bulk(result)
 
 
 class Command(Enum):

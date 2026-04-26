@@ -91,20 +91,33 @@ class RedisDB:
             return []
         return lst[start_index:end_index + 1]
 
-    def lpop(self, key: bytes) -> bytes | None:
+    def lpop(self, key: bytes, count: int | None = None) -> bytes | list[bytes] | None:
         lst = self._get_list(key)
         if lst is None:
             return None
-        value = lst.pop(0)
+        if count is None:
+            value = lst.pop(0)
+            if not lst:
+                del self.store[key]
+            return value
+        count = min(count, len(lst))
+        values, lst[:count] = lst[:count], []
         if not lst:
             del self.store[key]
-        return value
+        return values
 
-    def rpop(self, key: bytes) -> bytes | None:
+    def rpop(self, key: bytes, count: int | None = None) -> bytes | list[bytes] | None:
         lst = self._get_list(key)
         if lst is None:
             return None
-        value = lst.pop()
+        if count is None:
+            value = lst.pop()
+            if not lst:
+                del self.store[key]
+            return value
+        count = min(count, len(lst))
+        values = lst[-count:]
+        del lst[-count:]
         if not lst:
             del self.store[key]
-        return value
+        return values
