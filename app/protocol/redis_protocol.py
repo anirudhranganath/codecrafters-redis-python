@@ -13,6 +13,18 @@ def _bulk(value: bytes) -> bytes:
     return f"${len(value)}\r\n".encode() + value + _CRLF
 
 
+def _int_reply(n: int) -> bytes:
+    return f":{n}\r\n".encode()
+
+
+def _check_arity(args: list[bytes], expected: int) -> bytes | None:
+    """Return an error response if len(args) != expected, else None."""
+    if len(args) != expected:
+        cmd = args[0].decode().lower()
+        return f"-ERR wrong number of arguments for '{cmd}' command\r\n".encode()
+    return None
+
+
 def _handle_ping(args: list[bytes], store: RedisDB) -> bytes:
     if len(args) == 1:
         return b"+PONG\r\n"
@@ -20,8 +32,8 @@ def _handle_ping(args: list[bytes], store: RedisDB) -> bytes:
 
 
 def _handle_echo(args: list[bytes], store: RedisDB) -> bytes:
-    if len(args) != 2:
-        return b"-ERR wrong number of arguments for 'echo' command\r\n"
+    if (err := _check_arity(args, 2)):
+        return err
     return _bulk(args[1])
 
 
@@ -49,8 +61,8 @@ def _handle_set(args: list[bytes], store: RedisDB) -> bytes:
 
 
 def _handle_get(args: list[bytes], store: RedisDB) -> bytes:
-    if len(args) != 2:
-        return b"-ERR wrong number of arguments for 'get' command\r\n"
+    if (err := _check_arity(args, 2)):
+        return err
     try:
         value = store.get(args[1])
     except WrongTypeError:
@@ -67,7 +79,7 @@ def _handle_rpush(args: list[bytes], store: RedisDB) -> bytes:
         items = store.rpush(args[1], args[2:])
     except WrongTypeError:
         return WRONGTYPE_ERROR
-    return f":{items}\r\n".encode()
+    return _int_reply(items)
 
 
 def _handle_lpush(args: list[bytes], store: RedisDB) -> bytes:
@@ -77,12 +89,12 @@ def _handle_lpush(args: list[bytes], store: RedisDB) -> bytes:
         items = store.lpush(args[1], args[2:])
     except WrongTypeError:
         return WRONGTYPE_ERROR
-    return f":{items}\r\n".encode()
+    return _int_reply(items)
 
 
 def _handle_lrange(args: list[bytes], store: RedisDB) -> bytes:
-    if len(args) != 4:
-        return b"-ERR wrong number of arguments for 'lrange' command\r\n"
+    if (err := _check_arity(args, 4)):
+        return err
     try:
         start, end = int(args[2]), int(args[3])
         items = store.lrange(args[1], start, end)
@@ -93,16 +105,18 @@ def _handle_lrange(args: list[bytes], store: RedisDB) -> bytes:
     ret_string = b"".join(_bulk(item) for item in items)
     return f"*{len(items)}\r\n".encode() + ret_string
 
+
 def _handle_llen(args: list[bytes], store: RedisDB) -> bytes:
-    if len(args) != 2:
-        return b"-ERR wrong number of arguments for 'llen' command\r\n"
+    if (err := _check_arity(args, 2)):
+        return err
     try:
         length = store.llen(args[1])
     except WrongTypeError:
         return WRONGTYPE_ERROR
-    return f":{length}\r\n".encode()
+    return _int_reply(length)
 
-class Command(str, Enum):
+
+class Command(Enum):
     """Redis command types."""
 
     PING = "PING"
@@ -123,7 +137,7 @@ _HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
     Command.RPUSH:  _handle_rpush,
     Command.LPUSH:  _handle_lpush,
     Command.LRANGE: _handle_lrange,
-    Command.LLEN: _handle_llen,
+    Command.LLEN:   _handle_llen,
 }
 
 if set(_HANDLERS) != set(Command):
