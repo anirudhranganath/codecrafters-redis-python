@@ -1,3 +1,5 @@
+import asyncio
+import inspect
 from enum import Enum
 from typing import Callable
 
@@ -8,6 +10,7 @@ WRONGTYPE_ERROR = b"-WRONGTYPE Operation against a key holding the wrong kind of
 
 _CRLF = b"\r\n"
 _NULL_BULK = b"$-1\r\n"
+_NULL_ARRAY = b"*-1\r\n"
 
 
 def _bulk(value: bytes) -> bytes:
@@ -161,6 +164,35 @@ def _handle_rpop(args: list[bytes], store: RedisDB) -> bytes:
     return _bulk(result)
 
 
+async def _handle_blpop(args: list[bytes], store: RedisDB) -> bytes:
+    if len(args) < 3:
+        return b"-ERR wrong number of arguments for 'blpop' command\r\n"
+
+    # Last arg is timeout in seconds
+    try:
+        timeout = float(args[-1])
+    except ValueError:
+        return b"-ERR timeout is not a float or out of range\r\n"
+
+    if timeout < 0:
+        return b"-ERR timeout is negative\r\n"
+
+    # All args except command and timeout are keys
+    keys = args[1:-1]
+
+    try:
+        result = await store.blpop(keys, timeout)
+    except WrongTypeError:
+        return WRONGTYPE_ERROR
+
+    if result is None:
+        # Timeout occurred - return null array
+        return _NULL_ARRAY
+
+    key, value = result
+    return b"*2\r\n" + _bulk(key) + _bulk(value)
+
+
 class Command(Enum):
     """Redis command types."""
 
@@ -174,6 +206,7 @@ class Command(Enum):
     LLEN = "LLEN"
     LPOP = "LPOP"
     RPOP = "RPOP"
+    BLPOP = "BLPOP"
 
 
 _HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
@@ -187,6 +220,7 @@ _HANDLERS: dict[Command, Callable[[list[bytes], RedisDB], bytes]] = {
     Command.LLEN:   _handle_llen,
     Command.LPOP:   _handle_lpop,
     Command.RPOP:   _handle_rpop,
+    Command.BLPOP:  _handle_blpop,
 }
 
 if set(_HANDLERS) != set(Command):
@@ -207,7 +241,7 @@ class RedisProtocol:
         """Process the input command and return the output data."""
         first = data[:1]
         if first == cls.RESP_ARRAY_PREFIX:
-            return cls.process_array(data, store)
+            return await cls.process_array(data, store)
         if first == cls.RESP_BULK_STRING_PREFIX:
             return cls.process_bulk_string(data)
         if first == cls.RESP_SIMPLE_STRING_PREFIX:
@@ -219,7 +253,7 @@ class RedisProtocol:
         return b"-ERR unknown command\r\n"
 
     @classmethod
-    def process_array(cls, data: bytes, store: RedisDB) -> bytes:
+    async def process_array(cls, data: bytes, store: RedisDB) -> bytes:
         """Parse a RESP array and dispatch to the appropriate command handler.
 
         Arrays are of the form *<number-of-elements>\r\n<element-1>...<element-n>
@@ -249,7 +283,12 @@ class RedisProtocol:
             handler = _HANDLERS[Command(args[0].upper().decode())]
         except (ValueError, KeyError):
             return b"-ERR unknown command\r\n"
-        return handler(args, store)
+
+        # Check if handler is async
+        if inspect.iscoroutinefunction(handler):
+            return await handler(args, store)
+        else:
+            return handler(args, store)
 
     @classmethod
     def process_bulk_string(cls, data: bytes, pos: int | None = None) -> tuple[bytes, int] | bytes:

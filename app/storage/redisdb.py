@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from app.storage.strobj import RedisEntry, RedisType
@@ -12,6 +13,7 @@ class RedisDB:
 
     def __init__(self):
         self.store: dict[bytes, RedisEntry] = {}
+        self._block_waiters: dict[bytes, list[asyncio.Event]] = {}
 
     def _get_entry(self, key: bytes) -> RedisEntry | None:
         """Return the entry for key, deleting it if expired. Returns None if missing or expired."""
@@ -56,6 +58,9 @@ class RedisDB:
             self.store[key] = RedisEntry(type=RedisType.LIST, value=value[:])
         else:
             lst.extend(value)
+        # Notify one waiter per element added
+        for _ in range(len(value)):
+            self._notify_waiters(key)
         return len(self.store[key].value)  # type: ignore[arg-type]
 
     def lpush(self, key: bytes, value: list[bytes]) -> int:
@@ -65,6 +70,9 @@ class RedisDB:
             self.store[key] = RedisEntry(type=RedisType.LIST, value=list(reversed(value)))
         else:
             lst[:0] = list(reversed(value))
+        # Notify one waiter per element added
+        for _ in range(len(value)):
+            self._notify_waiters(key)
         return len(self.store[key].value)  # type: ignore[arg-type]
 
     def llen(self, key: bytes) -> int:
@@ -121,3 +129,74 @@ class RedisDB:
         if not lst:
             del self.store[key]
         return values
+
+    def _notify_waiters(self, key: bytes) -> None:
+        """Notify one waiter blocked on this key (FIFO order)."""
+        if key in self._block_waiters and self._block_waiters[key]:
+            # Only wake the first waiter (FIFO)
+            event = self._block_waiters[key][0]
+            event.set()
+
+    async def blpop(self, keys: list[bytes], timeout_seconds: float) -> tuple[bytes, bytes] | None:
+        """Block until an element is available in one of the keys or timeout.
+
+        Returns (key, value) tuple or None on timeout.
+        """
+        start_time = asyncio.get_event_loop().time()
+
+        while True:
+            # Try to pop from any existing non-empty list
+            for key in keys:
+                try:
+                    lst = self._get_list(key)
+                    if lst and len(lst) > 0:
+                        value = lst.pop(0)
+                        if not lst:
+                            del self.store[key]
+                        return (key, value)
+                except WrongTypeError:
+                    # Key exists but is wrong type - skip it
+                    continue
+
+            # No data available, need to block
+            event = asyncio.Event()
+
+            # Register this waiter for all keys
+            for key in keys:
+                if key not in self._block_waiters:
+                    self._block_waiters[key] = []
+                self._block_waiters[key].append(event)
+
+            try:
+                # Calculate remaining timeout
+                if timeout_seconds == 0:
+                    # 0 means block indefinitely
+                    remaining_timeout = None
+                else:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    remaining_timeout = timeout_seconds - elapsed
+                    if remaining_timeout <= 0:
+                        return None
+
+                # Wait for either timeout or notification
+                if remaining_timeout is None:
+                    await event.wait()
+                else:
+                    try:
+                        await asyncio.wait_for(event.wait(), timeout=remaining_timeout)
+                    except asyncio.TimeoutError:
+                        return None
+
+                # We were notified, loop back to try popping again
+                # This handles race conditions where another waiter got the data
+
+            finally:
+                # Clean up waiter registration
+                for key in keys:
+                    if key in self._block_waiters:
+                        try:
+                            self._block_waiters[key].remove(event)
+                            if not self._block_waiters[key]:
+                                del self._block_waiters[key]
+                        except (ValueError, KeyError):
+                            pass
